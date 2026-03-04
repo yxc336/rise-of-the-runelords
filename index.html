@@ -236,6 +236,28 @@
             font-size: 1.2em; opacity: 0.4; letter-spacing: 10px; transition: opacity 0.5s;
         }
         .瑟希隆符号:hover { opacity: 1; text-shadow: 0 0 10px var(--pf-古金); }
+
+        /* 专有名词记录框样式 */
+        #名词输入框 {
+            width: 100%;
+            height: 350px;
+            box-sizing: border-box;
+            background: rgba(255, 255, 255, 0.7);
+            border: 2px solid var(--pf-边框);
+            /* 固定文字颜色和大小 */
+            color: var(--pf-深红); 
+            font-size: 16px; 
+            font-family: inherit;
+            padding: 15px;
+            resize: vertical;
+            line-height: 1.6;
+            transition: background 0.3s;
+        }
+        #名词输入框:focus {
+            background: rgba(255, 255, 255, 0.95);
+            outline: none;
+            box-shadow: 0 0 8px var(--pf-古金);
+        }
     </style>
 </head>
 <body>
@@ -251,14 +273,13 @@
         <div id="状态栏">愿阿巴达尔指引你。</div>
 
         <div class="控制台">
-            <!-- 所有人可见 -->
             <button class="按钮 按钮-模式" onclick="切换模式()" id="模式按钮">✎ 编辑模式</button>
             <button class="按钮" onclick="加载数据()">🔄 刷新重载</button>
             <button class="按钮" style="background:#4a3728" onclick="导出备份()">导出</button>
 
-            <!-- 仅编辑模式可见 -->
             <div class="管理员组">
                 <div class="分隔符"></div>
+                <button class="按钮" style="background:#2b3a42" onclick="打开名词弹窗()">📖 专有名词</button>
                 <button class="按钮" onclick="添加行()">+ 新增 NPC</button>
                 <button class="按钮 同步按钮" id="保存按钮" onclick="保存到云端()">● 祭仪保存 (同步)</button>
                 <button class="按钮" style="background:#4a3728" onclick="触发导入()">导入</button>
@@ -305,6 +326,16 @@
         </div>
     </div>
 
+    <div id="名词弹窗" class="弹窗遮罩">
+        <div class="上传面板" style="width: 650px; max-width: 90vw;">
+            <h3>专有名词与备忘录</h3>
+            <textarea id="名词输入框" placeholder="在此记录专有名词、设定备忘录..." oninput="记录名词变更()"></textarea>
+            <div style="margin-top: 15px; display: flex; gap: 10px; justify-content: center;">
+                <button class="按钮" onclick="关闭名词弹窗()">完成并关闭</button>
+            </div>
+        </div>
+    </div>
+
     <input type="file" id="隐藏上传" style="display:none" accept="image/*">
 
     <script>
@@ -314,6 +345,7 @@
         const 密码 = '781674';
 
         let 内存数据 = [];
+        let 专有名词数据 = ""; 
         let 当前编辑索引 = -1;
         let 是否编辑模式 = false; 
         let 有未保存变更 = false;
@@ -381,7 +413,18 @@
                     headers: { 'X-Master-Key': API_KEY, 'X-Bin-Meta': false }
                 });
                 const data = await res.json();
-                内存数据 = Array.isArray(data) ? data : (data.record || []);
+                let payload = data.record || data;
+                
+                // 兼容旧的纯数组数据结构
+                if (Array.isArray(payload)) {
+                    内存数据 = payload;
+                    专有名词数据 = "";
+                } else {
+                    内存数据 = payload.npcs || [];
+                    专有名词数据 = payload.terms || "";
+                }
+                
+                document.getElementById('名词输入框').value = 专有名词数据;
                 渲染表格();
                 设置未保存状态(false);
                 更新状态("档案已载入。愿阿巴达尔指引你。");
@@ -442,7 +485,6 @@
         }
 
         function 添加行() {
-            // 已修改：这里使用了你指定的新图片URL
             内存数据.push({ 
                 立绘: 'https://i.ibb.co/mFr8QwJm/image.png', 
                 姓名: '新NPC', 职位: '新职位', 动机: '动机', 备注: '记录...' 
@@ -477,16 +519,34 @@
 
             更新状态("正在封存卷轴...");
             try {
+                // 打包保存 npcs 和 terms
                 await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json', 'X-Master-Key': API_KEY },
-                    body: JSON.stringify(内存数据)
+                    body: JSON.stringify({ npcs: 内存数据, terms: 专有名词数据 })
                 });
                 设置未保存状态(false);
                 更新状态("保存成功！档案已安全进入金库。");
             } catch (e) {
                 更新状态("保存失败。");
                 alert("云端同步失败，请检查网络。");
+            }
+        }
+
+        // --- 专有名词管理 ---
+        function 打开名词弹窗() {
+            document.getElementById('名词弹窗').style.display = 'flex';
+        }
+
+        function 关闭名词弹窗() {
+            document.getElementById('名词弹窗').style.display = 'none';
+        }
+
+        function 记录名词变更() {
+            const newVal = document.getElementById('名词输入框').value;
+            if (专有名词数据 !== newVal) {
+                专有名词数据 = newVal;
+                设置未保存状态(true); // 触发未保存红灯警告
             }
         }
 
@@ -632,11 +692,13 @@
         });
 
         function saveLocal() {
-            localStorage.setItem('pf_rotr_local', JSON.stringify(内存数据));
+            const localData = { npcs: 内存数据, terms: 专有名词数据 };
+            localStorage.setItem('pf_rotr_local', JSON.stringify(localData));
         }
 
         function 导出备份() {
-            const blob = new Blob([JSON.stringify(内存数据, null, 2)], { type: 'application/json' });
+            const exportData = { npcs: 内存数据, terms: 专有名词数据 };
+            const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
             a.download = `NPC备份_${new Date().toLocaleDateString()}.json`;
@@ -650,7 +712,15 @@
             if(!file) return;
             const reader = new FileReader();
             reader.onload = (ev) => {
-                内存数据 = JSON.parse(ev.target.result);
+                let payload = JSON.parse(ev.target.result);
+                if (Array.isArray(payload)) {
+                    内存数据 = payload;
+                    专有名词数据 = "";
+                } else {
+                    内存数据 = payload.npcs || [];
+                    专有名词数据 = payload.terms || "";
+                }
+                document.getElementById('名词输入框').value = 专有名词数据;
                 渲染表格();
                 设置未保存状态(true);
                 更新状态("备份已载入，点击同步生效。");
